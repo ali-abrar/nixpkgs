@@ -15,15 +15,13 @@ let
 
   flushNat = ''
     ${helpers}
-    ip46tables -w -t nat -D PREROUTING -j nixos-nat-pre 2>/dev/null|| true
-    ip46tables -w -t nat -F nixos-nat-pre 2>/dev/null || true
-    ip46tables -w -t nat -X nixos-nat-pre 2>/dev/null || true
-    ip46tables -w -t nat -D POSTROUTING -j nixos-nat-post 2>/dev/null || true
-    ip46tables -w -t nat -F nixos-nat-post 2>/dev/null || true
-    ip46tables -w -t nat -X nixos-nat-post 2>/dev/null || true
-    ip46tables -w -t nat -D OUTPUT -j nixos-nat-out 2>/dev/null || true
-    ip46tables -w -t nat -F nixos-nat-out 2>/dev/null || true
-    ip46tables -w -t nat -X nixos-nat-out 2>/dev/null || true
+    iptables -w -t nat -D PREROUTING -j nixos-nat-pre 2>/dev/null|| true
+    iptables -w -t nat -D OUTPUT -j nixos-nat-pre 2>/dev/null|| true
+    iptables -w -t nat -F nixos-nat-pre 2>/dev/null || true
+    iptables -w -t nat -X nixos-nat-pre 2>/dev/null || true
+    iptables -w -t nat -D POSTROUTING -j nixos-nat-post 2>/dev/null || true
+    iptables -w -t nat -F nixos-nat-post 2>/dev/null || true
+    iptables -w -t nat -X nixos-nat-post 2>/dev/null || true
 
     ${cfg.extraStopCommands}
   '';
@@ -47,6 +45,8 @@ let
       iptables -w -t nat -A nixos-nat-post -m mark --mark 1 \
         ${optionalString (cfg.externalInterface != null) "-o ${cfg.externalInterface}"} ${dest}
     ''}
+    iptables -w -t nat -A nixos-nat-post -m mark --mark 1 \
+      -d 192.168.3.0/24 -j MASQUERADE
 
     # NAT packets coming from the internal IPs.
     ${concatMapStrings (range: ''
@@ -57,8 +57,14 @@ let
     # NAT from external ports to internal ports.
     ${concatMapStrings (fwd: ''
       iptables -w -t nat -A nixos-nat-pre \
-        -i ${toString cfg.externalInterface} -p ${fwd.proto} \
-        --dport ${builtins.toString fwd.sourcePort} \
+        ${concatMapStrings (ip: "\! -d ${ip} ") cfg.internalIPs} \
+        -m addrtype --dst-type LOCAL \
+        -p ${fwd.proto} --dport ${builtins.toString fwd.sourcePort} \
+        -j MARK --set-mark 1
+      iptables -w -t nat -A nixos-nat-pre \
+        ${concatMapStrings (ip: "\! -d ${ip} ") cfg.internalIPs} \
+        -m addrtype --dst-type LOCAL \
+        -p ${fwd.proto} --dport ${builtins.toString fwd.sourcePort} \
         -j DNAT --to-destination ${fwd.destination}
 
       ${concatMapStrings (loopbackip:
@@ -95,9 +101,9 @@ let
     ${cfg.extraCommands}
 
     # Append our chains to the nat tables
-    ip46tables -w -t nat -A PREROUTING -j nixos-nat-pre
-    ip46tables -w -t nat -A POSTROUTING -j nixos-nat-post
-    ip46tables -w -t nat -A OUTPUT -j nixos-nat-out
+    iptables -w -t nat -A PREROUTING -j nixos-nat-pre
+    iptables -w -t nat -A OUTPUT -j nixos-nat-pre
+    iptables -w -t nat -A POSTROUTING -j nixos-nat-post
   '';
 
 in
